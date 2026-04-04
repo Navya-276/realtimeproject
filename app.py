@@ -4,7 +4,6 @@ from ultralytics import YOLO
 import torch
 from torchvision import models, transforms
 import numpy as np
-
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Real time serverless Image Recognition", layout="wide")
 
@@ -57,6 +56,15 @@ st.markdown('<div class="sub-title">Powered by YOLO + ResNet Deep Learning Model
 def load_models():
     yolo_model = YOLO("yolov8n.pt")
     resnet_model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+
+st.title("Real-Time Image Recognition System")
+
+# ---------------- LOAD MODELS ONCE ----------------
+@st.cache_resource
+def load_models():
+    yolo_model = YOLO("yolov8n.pt")
+    resnet_model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)  # lighter model
+
     resnet_model.eval()
     return yolo_model, resnet_model
 
@@ -74,16 +82,28 @@ st.markdown("### 📤 Upload or Capture Image")
 
 if option == "Upload Image":
     uploaded_file = st.file_uploader("", type=["jpg", "png", "jpeg"])
+# ---------------- INPUT ----------------
+option = st.radio("Choose Input Type", ["Upload Image", "Use Camera"])
+
+image = None
+
+if option == "Upload Image":
+    uploaded_file = st.file_uploader("Upload Image", type=["jpg", "png", "jpeg"])
     if uploaded_file:
         image = Image.open(uploaded_file).convert("RGB")
 
 elif option == "Use Camera":
+
     camera = st.camera_input("")
+
+    camera = st.camera_input("Take a picture")
+
     if camera:
         image = Image.open(camera).convert("RGB")
 
 # ---------------- PROCESS ----------------
 if image:
+
     st.markdown("---")
 
     col1, col2 = st.columns(2)
@@ -91,6 +111,9 @@ if image:
     with col1:
         st.markdown("### 📷 Input Image")
         st.image(image, use_column_width=True)
+
+    st.image(image, caption="Input Image", use_column_width=True)
+
 
     img_array = np.array(image)
 
@@ -105,6 +128,14 @@ if image:
 
     st.markdown("## 🔍 Detected Objects")
 
+    st.subheader("🔍 Detected Objects")
+
+    results = model_yolo(img_array, conf=0.3)
+
+    annotated_frame = results[0].plot()
+    st.image(annotated_frame, caption="Detected Image", use_column_width=True)
+
+
     best_detections = {}
 
     for r in results:
@@ -117,13 +148,22 @@ if image:
 
     if best_detections:
         for label, conf in best_detections.items():
+
             st.markdown(f'<div class="result-box">👉 <b>{label}</b> — {conf*100:.2f}%</div>', unsafe_allow_html=True)
             st.progress(conf)
+
+            st.write(f"👉 {label} ({conf*100:.2f}%)")
+            st.progress(float(conf))
+
     else:
         st.warning("No objects detected")
 
     # ---------------- RESNET ----------------
+
     st.markdown("## 🧠 AI Detailed Prediction")
+
+    st.subheader("🧠 Detailed Prediction")
+
 
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
@@ -139,6 +179,7 @@ if image:
         probabilities = torch.nn.functional.softmax(outputs[0], dim=0)
         top3 = torch.topk(probabilities, 3)
 
+
     classes = models.ResNet18_Weights.DEFAULT.meta["categories"]
 
     for idx, prob in zip(top3.indices, top3.values):
@@ -146,3 +187,11 @@ if image:
 
     st.markdown("---")
     st.success("✅ Prediction Completed Successfully!")
+
+    # Predefined labels (no internet needed)
+    classes = models.ResNet18_Weights.DEFAULT.meta["categories"]
+
+    for idx, prob in zip(top3.indices, top3.values):
+        st.write(f"👉 {classes[int(idx)]} ({prob.item()*100:.2f}%)")
+        
+
