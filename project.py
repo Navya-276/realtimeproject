@@ -3,10 +3,19 @@ from PIL import Image
 from ultralytics import YOLO
 import torch
 from torchvision import models, transforms
-import urllib.request
 import numpy as np
 
 st.title("Real-Time Image Recognition System")
+
+# ---------------- LOAD MODELS ONCE ----------------
+@st.cache_resource
+def load_models():
+    yolo_model = YOLO("yolov8n.pt")
+    resnet_model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)  # lighter model
+    resnet_model.eval()
+    return yolo_model, resnet_model
+
+model_yolo, model_resnet = load_models()
 
 # ---------------- INPUT ----------------
 option = st.radio("Choose Input Type", ["Upload Image", "Use Camera"])
@@ -32,12 +41,8 @@ if image:
     # ---------------- YOLO ----------------
     st.subheader("🔍 Detected Objects")
 
-    model_yolo = YOLO("yolov8n.pt")
-
-    # 🔥 Lower confidence to detect more animals
     results = model_yolo(img_array, conf=0.3)
 
-    # Show bounding boxes
     annotated_frame = results[0].plot()
     st.image(annotated_frame, caption="Detected Image", use_column_width=True)
 
@@ -48,29 +53,18 @@ if image:
             label = model_yolo.names[int(box.cls)]
             confidence = float(box.conf)
 
-            # Keep highest confidence per label
             if label not in best_detections or confidence > best_detections[label]:
                 best_detections[label] = confidence
 
-    # 🔥 KEEP ALL OBJECTS (no restriction)
-    filtered = {}
-    for label, conf in best_detections.items():
-        if conf > 0.4:   # adjust if needed (0.3–0.5)
-            filtered[label] = conf
-
-    # Display results
-    if filtered:
-        for label, conf in filtered.items():
+    if best_detections:
+        for label, conf in best_detections.items():
             st.write(f"👉 {label} ({conf*100:.2f}%)")
             st.progress(float(conf))
     else:
-        st.warning("No objects detected clearly")
+        st.warning("No objects detected")
 
     # ---------------- RESNET ----------------
-    st.subheader("🧠 Detailed Prediction (Top 3)")
-
-    model_resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
-    model_resnet.eval()
+    st.subheader("🧠 Detailed Prediction")
 
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
@@ -83,11 +77,12 @@ if image:
 
     with torch.no_grad():
         outputs = model_resnet(img_tensor)
-        _, indices = torch.topk(outputs, 3)
+        probabilities = torch.nn.functional.softmax(outputs[0], dim=0)
+        top3 = torch.topk(probabilities, 3)
 
-    # Load labels
-    url = "https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt"
-    classes = urllib.request.urlopen(url).read().decode('utf-8').split("\n")
+    # Predefined labels (no internet needed)
+    classes = models.ResNet18_Weights.DEFAULT.meta["categories"]
 
-    for idx in indices[0]:
-        st.write(f"👉 {classes[int(idx)]}")
+    for idx, prob in zip(top3.indices, top3.values):
+        st.write(f"👉 {classes[int(idx)]} ({prob.item()*100:.2f}%)")
+        
